@@ -55,11 +55,12 @@ cdat %>% group_by(id, age_months) %>%
 ## Materials and Design
 
 
-[include anything here?]
+The piloting phase adopted the same material and design as planned for the main study (see full description in the main text).
+
 
 ## Procedure
 
-[include anything here?]
+The piloting phase adopted the same procedure as planned for the main study (see full description in the main text).
 
 ## Results
 
