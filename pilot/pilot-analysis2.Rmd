@@ -1,0 +1,83 @@
+---
+title: 'Appendix: Pilot Experiment'
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message=F, warning=F)
+require(lme4)
+require(tidyverse)
+require(here)
+require(kableExtra)
+require(sjPlot)
+require(papaja)
+require(lmerTest)
+
+# for Bayesian regression
+require(brms)
+require(ggmcmc)
+require(tidybayes)
+require(ggdist)
+require(modelr)
+```
+
+We add a new pilot dataset of 15 infants from Leiden University.
+
+## Participants
+
+```{r load-data1}
+d1 <- read_csv(here("pilot/data/first_session_babies.csv")) %>%
+  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1) 
+d2 <- read_csv(here("pilot/data/second_session_babies.csv")) %>%
+  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1,
+         looking_time = `looking time`) 
+
+cdat <- bind_rows(d1, d2) %>%
+  filter(!is.na(id)) %>%
+  mutate(labID = 1)
+```
+
+```{r load-data2}
+demo <- read_csv("data/Data_Pilot_Leiden_Participants.csv") %>%
+  select(1:26) # up to "notes" column
+
+dem_cln = demo %>% mutate(age_months = `Age(days)` / 30.44) %>%
+  rename(id = Subject, fam_condition=Condition, gender=Gender) %>%
+  select(id, fam_condition, age_months, gender) %>%
+  mutate(gender = ifelse(gender=="M", "male", "female"),
+         labID = 2)
+# also need to standardize language (L1, L2, etc) and amounts (L1H etc)
+  
+leiden_dat <- list.files(path="data/Data_Pilot_Leiden", pattern='*.csv', full.names=T) %>% 
+  lapply(read_csv) %>% bind_rows 
+
+# proper header
+names(leiden_dat) = leiden_dat[3,]
+
+# do one example file (# of columns differ?)
+f1 <- read_csv("data/Data_Pilot_Leiden/MB3_ABA_11-1.csv")
+names(f1) = f1[3,]
+f1 <- f1[4:nrow(f1),]
+
+# README: The relevant columns for looking times during test are:
+# `LookTime2.Block.`,`LookTime4.Block.`,  `LookTime6.Block.`, etc (only even numbers). 
+# The number of total look times depends on the number of separate looks that infants made.
+
+look_time_cols = names(f1)[grepl("LookTime", names(f1))]
+View(f1[,look_time_cols])
+# LookTime2[Block] and LookTime4[Block] look good, 
+# but what about LookTime2[Trial] and LookTime4[Trial] ?
+# what about LookTime6 and LookTime8? (mostly empty, and no [Trial] or [Block] suffix)
+
+f1_cln <- f1 %>% rename(AudioFile = `AudioFile[Block]`) %>%
+  select(Subject, Block, AudioFile)
+
+# error: duplicate column names
+#clean_dat <- leiden_dat %>% filter(ExperimentName!="EXPNAME", ExperimentName!="1")
+
+```
+
+
