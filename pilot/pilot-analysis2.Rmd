@@ -1,0 +1,100 @@
+---
+title: 'Appendix: Pilot Experiment'
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message=F, warning=F)
+require(lme4)
+require(tidyverse)
+require(here)
+require(kableExtra)
+require(sjPlot)
+require(papaja)
+require(lmerTest)
+
+# for Bayesian regression
+require(brms)
+require(ggmcmc)
+require(tidybayes)
+require(ggdist)
+require(modelr)
+```
+
+We add a new pilot dataset of 15 infants from Leiden University.
+
+## Participants
+
+```{r load-julien-data}
+d1 <- read_csv(here("pilot/data/first_session_babies.csv")) %>%
+  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1) 
+d2 <- read_csv(here("pilot/data/second_session_babies.csv")) %>%
+  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1,
+         looking_time = `looking time`) 
+
+cdat <- bind_rows(d1, d2) %>%
+  filter(!is.na(id)) %>%
+  mutate(labID = 1)
+```
+
+```{r process-leiden-data, eval=F}
+demo <- read_csv("data/Data_Pilot_Leiden_Participants.csv") %>%
+  select(1:26) # up to "notes" column
+
+dem_cln = demo %>% mutate(age_months = `Age(days)` / 30.44) %>%
+  rename(id = Subject, fam_condition=Condition, gender=Gender) %>%
+  select(id, fam_condition, age_months, gender) %>%
+  mutate(gender = ifelse(gender=="M", "male", "female"),
+         labID = 2)
+# also need to standardize language (L1, L2, etc) and amounts (L1H etc)
+
+
+# varying numbers of columns per datafile
+ldat <- tibble()
+
+data_files <- list.files(path="data/Data_Pilot_Leiden", pattern='*.csv', full.names=T) 
+
+for(fname in data_files) {
+  tmp <- read_csv(fname) 
+  # proper header
+  names(tmp) = tmp[3,]
+  tmp <- tmp[4:nrow(tmp),]
+  
+  # README: The relevant columns for looking times during test are:
+  # `LookTime2.Block.`,`LookTime4.Block.`,  `LookTime6.Block.`, etc (only even numbers). 
+  # The number of total look times depends on the number of separate looks that infants made.
+  lt_cols <- which(startsWith(names(tmp), "LookTime"))
+  lt_block_cols <- which(endsWith(names(tmp)[lt_cols], "[Block]"))
+  test_indices = seq(2, length(lt_block_cols), 2)
+  lt_col_names <- names(tmp)[lt_cols][lt_block_cols][test_indices]
+  
+  tmp_proc <- tmp %>% filter(AttenList.Cycle!="1") %>%
+    select(ExperimentName, Subject, DataFile.Basename, Block, `AudioFile[Block]`, 
+                 lt_col_names) %>%
+    mutate(across(where(is.character), ~na_if(., "NULL")))
+  
+  tmp_final <- tmp_proc %>% 
+    mutate_at(lt_col_names, as.numeric) %>%
+    mutate(looking_time = rowSums(.[grep("LookTime", names(.))], na.rm=T)) %>%
+    select(-lt_col_names)
+  
+  ldat <- bind_rows(ldat, tmp_final)
+}
+
+
+ldat <- ldat %>% rename(audio_file = `AudioFile[Block]`,
+                        trial = Block,
+                        id = Subject) %>%
+  mutate(id = as.numeric(id)) %>% left_join(dem_cln)
+
+save(ldat, file="data/merged_Leiden_pilot_data.Rdata")
+```
+
+
+```{r load-leiden-data}
+load("data/merged_Leiden_pilot_data.Rdata")
+```
+
