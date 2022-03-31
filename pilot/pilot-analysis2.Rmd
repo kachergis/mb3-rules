@@ -25,6 +25,11 @@ require(modelr)
 ```
 
 We add a new pilot dataset of 15 infants from Leiden University.
+Notes: 
+Julien's data has age rounded to month -- don't we want continuous age?
+There are 16 data files for Leiden participants, but inside the file for participant 16 the subject ID is '15': is this a duplicate, or should just be changed to 16? 
+What are the procedures used by each lab? (Leiden = HPP, Julien = eyetracking?)
+Which random effects structures should we use for the 2 pilot labs (esp. tricky if they also vary procedure)?
 
 ## Participants
 
@@ -37,7 +42,7 @@ d2 <- read_csv(here("pilot/data/second_session_babies.csv")) %>%
 
 cdat <- bind_rows(d1, d2) %>%
   filter(!is.na(id)) %>%
-  mutate(labID = 1)
+  mutate(labID = 1) # procedure = "eyetracking" ?
 ```
 
 ```{r process-leiden-data, eval=F}
@@ -48,7 +53,7 @@ dem_cln = demo %>% mutate(age_months = `Age(days)` / 30.44) %>%
   rename(id = Subject, fam_condition=Condition, gender=Gender) %>%
   select(id, fam_condition, age_months, gender) %>%
   mutate(gender = ifelse(gender=="M", "male", "female"),
-         labID = 2)
+         labID = 2) # procedure = "HPP" ?
 # also need to standardize language (L1, L2, etc) and amounts (L1H etc)
 
 
@@ -96,5 +101,112 @@ save(ldat, file="data/merged_Leiden_pilot_data.Rdata")
 
 ```{r load-leiden-data}
 load("data/merged_Leiden_pilot_data.Rdata")
+# Leiden has a duplicate subject 15 (in the file MB3_ABB_16-1.csv the subject number is 15)
 ```
+
+
+```{r merge-data}
+
+dat <- cdat %>% select(1:14, "labID") # remaining columns are averages and notes
+
+fam_dat <- dat %>% filter(is.na(test_trial)) %>% 
+  select(-test_trial, -test_trial_audio, -test_trial_audio_length_ms, 
+         -test_trial_type, -test_version, -trial)
+
+# Leiden familiarization data
+fam_datl <- ldat %>% filter(str_detect(audio_file, "fam_")) %>% 
+  rename(fam_trial_audio = audio_file) %>%
+  mutate(id = as.character(id)) %>%
+  select(-trial)
+
+fam_dat_all <- fam_dat %>% select(intersect(names(fam_dat), names(fam_datl))) %>%
+  bind_rows(fam_datl %>% select(intersect(names(fam_dat), names(fam_datl))))
+# table(fam_dat_all$fam_condition) # 17 per condition
+
+# Julien data
+test_dat <- dat %>% filter(!is.na(test_trial)) %>% 
+  select(-fam_trial_audio, -fam_version) %>%
+  separate(test_trial_type, sep='_', 
+           into = c("test_trial_type_ch", "test_trial_type_num")) %>%
+  mutate(trial_type = ifelse(test_trial_type_ch == fam_condition, "same", "different"),
+         trial = trial - 1) # was 2-13; now 1-12
+
+# Leiden data
+test_datl <- ldat %>% filter(!str_detect(audio_file, "fam_")) %>% 
+  select(-DataFile.Basename, -ExperimentName) %>%
+  rename(test_trial_audio = audio_file) %>%
+  mutate(test_trial_type_ch = case_when(str_detect(test_trial_audio, "tisoti") ~ "ABA",
+                                        str_detect(test_trial_audio, "tisoso") ~ "ABB",
+                                        str_detect(test_trial_audio, "lonini") ~ "ABB",
+                                        str_detect(test_trial_audio, "lonilo") ~ "ABA",
+                                        str_detect(test_trial_audio, "lonini") ~ "ABB",
+                                        TRUE ~ as.character(NA))) %>%
+  mutate(id = as.character(id),
+         trial_type = ifelse(test_trial_type_ch == fam_condition, "same", "different"),
+         trial = as.numeric(trial) - 2) # was 3-14; now 1-12
+
+needed_cols <- c("labID", "id", "gender", "age_months", "fam_condition", "trial_type", "trial", "looking_time")
+
+test_dat_all <- test_dat %>% select(needed_cols) %>% 
+  bind_rows(test_datl %>% select(needed_cols)) %>%
+  mutate(log_looking_time = log(looking_time),
+         age_sc = scale(age_months, center=T, scale=T)[,1],
+         trial_sc = scale(trial, center=T, scale=T)[,1])
+```
+
+# Analysis
+
+```{r, lmer-regression}
+m1 <- lmer(log_looking_time ~ 1 + 
+             fam_condition * trial_type +
+             age_months * trial_type +
+             trial * trial_type + (trial * trial_type | id) + (1 | labID), 
+           data=test_dat_all)
+# isSingular(m1)
+# singular, random effects need pruning (changing to trial_sc / age_sc did not help)
+
+# try pruning either trial number or trial type (both converge)
+m2 <- lmer(log_looking_time ~ 1 + 
+             fam_condition * trial_type +
+             age_months * trial_type +
+             trial * trial_type + (trial | id) + (1 | labID), 
+           data=test_dat_all)
+# what random effects structure with labID do we want? (+ (id | labID) is slow..)
+
+m3 <- lmer(log_looking_time ~ 1 + 
+             fam_condition * trial_type +
+             age_months * trial_type +
+             trial * trial_type + (trial_type | id) + (1 | labID), 
+           data=test_dat_all)
+
+# anova(m2, m3) # m2 is slightly preferred
+
+mod_out <- summary(m2)
+
+papaja::apa_table(mod_out$coefficients, 
+                  caption="Regression coefficients.")
+```
+
+```{r, fig.width=4.8, fig.height=3.5, fig.cap="Regression coefficients with 95% confidence intervals."}
+plot_model(m2, sort.est = T) + theme_bw() + ggtitle("")  
+#  geom_vline(aes(xintercept=0), linetype="dashed")
+```
+
+```{r log-looking-time-by-age, fig.width=4.5, fig.height=4, fig.cap="Log(looking time) by trial type and age, and bootstrapped 95% confidence intervals."}
+dag <- test_dat_all %>% 
+  group_by(id, fam_condition, age_months, trial_type) %>%
+  #summarise(looking_time = mean(log_looking_time)) %>% 
+  #group_by(trial_type, age_months) %>%
+  tidyboot::tidyboot_mean(log_looking_time) # quite slow..
+
+#pos = position_dodge(width=.2)
+ggplot(dag, aes(x=age_months, y=mean, group=trial_type, color=trial_type)) + 
+  geom_point(aes(y=mean, x=age_months)) + # , pos=pos
+  ylab("log(looking time)") + xlab("Age (months)") + 
+  geom_linerange(aes(ymin=ci_lower, ymax=ci_upper), alpha=.3) + #  pos=pos,
+  theme_bw() + geom_smooth(method="lm") +
+  scale_color_discrete(name="Trial Type")
+```
+
+
 
