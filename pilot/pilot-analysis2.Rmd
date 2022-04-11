@@ -8,6 +8,7 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F, message=F, warning=F)
+
 require(lme4)
 require(tidyverse)
 require(here)
@@ -159,7 +160,19 @@ test_dat_all <- test_dat %>% select(needed_cols) %>%
          trial_sc = scale(trial, center=T, scale=T)[,1])
 ```
 
+```{r, echo=F}
+age_tab <- test_dat_all %>% mutate(age_months = round(age_months)) %>%
+  distinct(id, gender, age_months) %>%
+  group_by(age_months) %>%
+  summarise(n = n())
+
+papaja::apa_table(age_tab, caption="Summary of participants")
+```
+
+
+
 # Analysis
+
 
 ```{r, lmer-regression}
 m1 <- lmer(log_looking_time ~ 1 + 
@@ -216,7 +229,7 @@ ggplot(dag, aes(x=age_months, y=mean, group=trial_type, color=trial_type)) +
 
 ## Bayesian Regression 
 
-```{r, message=F, warning=F, eval=T, include=T}
+```{r, eval=T, include=F}
 bm0 <- brm(log_looking_time ~ 1 + 
              fam_condition * trial_type +
              age_months * trial_type +
@@ -243,11 +256,10 @@ waic0 <- waic(bm0)
 waic1 <- waic(bm1)
 compare_ic(waic0, waic1)
 # bm1 only a bit better than bm0 (2.75/5.39 = ~.5 SE lower)
-
 ```
 
-```{r, echo=F, eval=T, include=T}
-get_variables(bm1)
+```{r rope}
+#get_variables(bm1)
 bdat <- ggs(bm1)
 
 # bm1 %>% 
@@ -286,11 +298,21 @@ bm1 %>%
 
 Generate posterior predictive values. 
 
-```{r, include=T, eval=T}
+```{r post-pred}
 # posterior predictive
+# test_dat_all %>%
+#   data_grid(labID, id, fam_condition, trial_type, age_months, trial) %>%
+#   add_fitted_draws(bm1) %>%
+#   ggplot(aes(x = .value, y = trial_type)) +
+#   facet_grid(. ~ fam_condition) +
+#   stat_pointinterval(.width = c(.66, .95)) + 
+#   theme_bw()
+# Error: vector memory exhausted (limit reached?)
+# perhaps use shredder? https://github.com/mjskay/tidybayes/issues/266
+
 test_dat_all %>%
-  data_grid(labID, id, fam_condition, trial_type, age_months, trial) %>%
-  add_fitted_draws(bm1) %>%
+  data_grid(labID, id, fam_condition, trial_type, age_months) %>%
+  add_fitted_draws(bm0) %>%
   ggplot(aes(x = .value, y = trial_type)) +
   facet_grid(. ~ fam_condition) +
   stat_pointinterval(.width = c(.66, .95)) + 
