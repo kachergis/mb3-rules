@@ -165,7 +165,7 @@ get_variables(bm1)
 bdat <- ggs(bm1)
 
 bm1 %>% 
-  spread_draws(b_Intercept, b_fam_conditionABB, b_trial_typesame, b_age_months, b_trial 
+  spread_draws(b_Intercept, b_fam_conditionABB, b_trial_typesame, b_age_months, b_trial, 
               b_fam_conditionABB:trial_typesame, b_trial_typesame:age_months,
               b_trial_typesame:trial) %>%
   mutate(mean = b_Intercept + b_fam_conditionABB * b_trial_typesame +

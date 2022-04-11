@@ -24,7 +24,7 @@ require(ggdist)
 require(modelr)
 ```
 
-We add a new pilot dataset of 15 infants from Leiden University.
+We add a new pilot dataset of 16 infants from Leiden University.
 Notes: 
 Julien's data has age rounded to month -- don't we want continuous age?
 There are 16 data files for Leiden participants, but inside the file for participant 16 the subject ID is '15': is this a duplicate, or should just be changed to 16? 
@@ -42,7 +42,8 @@ d2 <- read_csv(here("pilot/data/second_session_babies.csv")) %>%
 
 cdat <- bind_rows(d1, d2) %>%
   filter(!is.na(id)) %>%
-  mutate(labID = 1) # procedure = "eyetracking" ?
+  mutate(labID = 1,
+         procedure = "eyetracking")
 ```
 
 ```{r process-leiden-data, eval=F}
@@ -53,7 +54,8 @@ dem_cln = demo %>% mutate(age_months = `Age(days)` / 30.44) %>%
   rename(id = Subject, fam_condition=Condition, gender=Gender) %>%
   select(id, fam_condition, age_months, gender) %>%
   mutate(gender = ifelse(gender=="M", "male", "female"),
-         labID = 2) # procedure = "HPP" ?
+         labID = 2,
+         procedure = "HPP") # ?
 # also need to standardize language (L1, L2, etc) and amounts (L1H etc)
 
 
@@ -78,7 +80,7 @@ for(fname in data_files) {
   
   tmp_proc <- tmp %>% filter(AttenList.Cycle!="1") %>%
     select(ExperimentName, Subject, DataFile.Basename, Block, `AudioFile[Block]`, 
-                 lt_col_names) %>%
+                 RandomSeed, lt_col_names) %>%
     mutate(across(where(is.character), ~na_if(., "NULL")))
   
   tmp_final <- tmp_proc %>% 
@@ -89,10 +91,14 @@ for(fname in data_files) {
   ldat <- bind_rows(ldat, tmp_final)
 }
 
+# participant 16 was mislabeled as 15 (in the file MB3_ABB_16-1.csv the subject number is 15)
+# fix based on RandomSeed (see email from Andreea)
+ldat[which(ldat$RandomSeed=="-1749405221"),]$Subject = "16" 
 
-ldat <- ldat %>% rename(audio_file = `AudioFile[Block]`,
-                        trial = Block,
-                        id = Subject) %>%
+ldat <- ldat %>% select(-RandomSeed) %>%
+  rename(audio_file = `AudioFile[Block]`,
+         trial = Block,
+         id = Subject) %>%
   mutate(id = as.numeric(id)) %>% left_join(dem_cln)
 
 save(ldat, file="data/merged_Leiden_pilot_data.Rdata")
@@ -101,7 +107,6 @@ save(ldat, file="data/merged_Leiden_pilot_data.Rdata")
 
 ```{r load-leiden-data}
 load("data/merged_Leiden_pilot_data.Rdata")
-# Leiden has a duplicate subject 15 (in the file MB3_ABB_16-1.csv the subject number is 15)
 ```
 
 
@@ -208,5 +213,88 @@ ggplot(dag, aes(x=age_months, y=mean, group=trial_type, color=trial_type)) +
   scale_color_discrete(name="Trial Type")
 ```
 
+
+## Bayesian Regression 
+
+```{r, message=F, warning=F, eval=T, include=T}
+bm0 <- brm(log_looking_time ~ 1 + 
+             fam_condition * trial_type +
+             age_months * trial_type +
+             (1 | id) + (1 | labID), 
+           data = test_dat_all, 
+           warmup = 1000, iter = 2000, chains = 4, 
+           inits = "random", cores = 4, seed=42) 
+
+summary(bm0)
+
+# add trial number effects
+bm1 <- brm(log_looking_time ~ 1 + 
+             fam_condition * trial_type +
+             age_months * trial_type +
+             trial * trial_type + (trial | id) + (1 | labID), 
+           data = test_dat_all, 
+           warmup = 1000, iter = 2000, chains = 4, 
+           inits = "random", cores = 4, seed=42) 
+
+summary(bm1)
+
+# Watanabe-Akaike Information Criterion
+waic0 <- waic(bm0)
+waic1 <- waic(bm1)
+compare_ic(waic0, waic1)
+# bm1 only a bit better than bm0 (2.75/5.39 = ~.5 SE lower)
+
+```
+
+```{r, echo=F, eval=T, include=T}
+get_variables(bm1)
+bdat <- ggs(bm1)
+
+# bm1 %>% 
+#   spread_draws(b_Intercept, b_fam_conditionABB, b_trial_typesame, b_age_months, b_trial,
+#               `b_fam_conditionABB:trial_typesame`, `b_trial_typesame:age_months`,
+#               `b_trial_typesame:trial`) %>%
+#   mutate(mean = b_Intercept + b_fam_conditionABB * b_trial_typesame +
+#            b_age_months * b_trial_typesame + 
+#            b_trial * b_trial_typesame) %>%
+#   ggplot(aes(y = fam_condition, x = mean)) +
+#   stat_halfeye()
+
+# Region of Practical Equivalence (ROPE)
+bm1 %>%
+  gather_draws(b_fam_conditionABB, b_trial_typesame, b_age_months, b_trial, # b_Intercept,
+               `b_fam_conditionABB:trial_typesame`, `b_trial_typesame:age_months`,
+               `b_trial_typesame:trial`) %>%
+  ggplot(aes(y = .variable, x = .value, fill = stat(abs(x) < .8))) +
+  stat_halfeye() +
+  geom_vline(xintercept = c(-.8, .8), linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "skyblue")) + 
+  theme_classic()
+  
+# test_dat_all %>%
+#   group_by(trial_type, id, labID, fam_condition, age_months) %>%
+#   data_grid(age_months = seq_range(age_months, n = 101)) %>%
+#   add_predicted_draws(bm0) %>%
+#   ggplot(aes(x = age_months, y = log_looking_time, color = ordered(fam_condition), fill = ordered(fam_condition))) +
+#   stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = 1/4) +
+#   geom_point(data = mtcars) +
+#   scale_fill_brewer(palette = "Set2") +
+#   scale_color_brewer(palette = "Dark2")
+
+```
+
+
+Generate posterior predictive values. 
+
+```{r, include=T, eval=T}
+# posterior predictive
+test_dat_all %>%
+  data_grid(labID, id, fam_condition, trial_type, age_months, trial) %>%
+  add_fitted_draws(bm1) %>%
+  ggplot(aes(x = .value, y = trial_type)) +
+  facet_grid(. ~ fam_condition) +
+  stat_pointinterval(.width = c(.66, .95)) + 
+  theme_bw()
+```
 
 
