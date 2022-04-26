@@ -26,19 +26,22 @@ require(modelr)
 ```
 
 We add a new pilot dataset of 16 infants from Leiden University.
-Notes: 
-Julien's data has age rounded to month -- don't we want continuous age?
-There are 16 data files for Leiden participants, but inside the file for participant 16 the subject ID is '15': is this a duplicate, or should just be changed to 16? 
-What are the procedures used by each lab? (Leiden = HPP, Julien = eyetracking?)
-Which random effects structures should we use for the 2 pilot labs (esp. tricky if they also vary procedure)?
+Procedures: Leiden = HPP, Oslo = eyetracking.
+Which random effects structures should we use for the 2 pilot labs? (Can either have intercept per lab, or per procedure, but not both, since each lab used a different procedure.)
 
 ## Participants
 
 ```{r load-julien-data}
-d1 <- read_csv(here("pilot/data/first_session_babies.csv")) %>%
-  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1) 
-d2 <- read_csv(here("pilot/data/second_session_babies.csv")) %>%
-  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1,
+d1 <- read_csv(here("pilot/data/Oslo_pilot_data/first_session_babies.csv")) %>%
+  mutate(age_months = age_days / 30.44) %>%
+  select(-age_days) %>%
+  rename(sd_LT_congruent_trials = "sd_LT_congruent_trials...17",
+         sd_LT_incongruent_trials = "sd_LT_congruent_trials...19") # incorrectly named column
+d2 <- read_csv(here("pilot/data/Oslo_pilot_data/second_session_babies.csv")) %>%
+  mutate(age_months = age_days / 30.44) %>%
+  select(-age_days) %>%
+  rename(sd_LT_congruent_trials = "sd_LT_congruent_trials...17",
+         sd_LT_incongruent_trials = "sd_LT_congruent_trials...19", # incorrectly named column
          looking_time = `looking time`) 
 
 cdat <- bind_rows(d1, d2) %>%
@@ -129,7 +132,7 @@ fam_dat_all <- fam_dat %>% select(intersect(names(fam_dat), names(fam_datl))) %>
   bind_rows(fam_datl %>% select(intersect(names(fam_dat), names(fam_datl))))
 # table(fam_dat_all$fam_condition) # 17 per condition
 
-# Julien data
+# Oslo data
 test_dat <- dat %>% filter(!is.na(test_trial)) %>% 
   select(-fam_trial_audio, -fam_version) %>%
   separate(test_trial_type, sep='_', 

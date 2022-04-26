@@ -30,10 +30,16 @@ Given the small size of the pilot, we do not expect to find significant effects,
 ## Participants
 
 ```{r load-data}
-d1 <- read_csv(here("pilot/data/first_session_babies.csv")) %>%
-  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1) 
-d2 <- read_csv(here("pilot/data/second_session_babies.csv")) %>%
-  rename(sd_LT_incongruent_trials = sd_LT_congruent_trials_1,
+d1 <- read_csv(here("pilot/data/Oslo_pilot_data/first_session_babies.csv")) %>%
+  mutate(age_months = age_days / 30.44) %>%
+  select(-age_days) %>%
+  rename(sd_LT_congruent_trials = "sd_LT_congruent_trials...17",
+         sd_LT_incongruent_trials = "sd_LT_congruent_trials...19") # incorrectly named column
+d2 <- read_csv(here("pilot/data/Oslo_pilot_data/second_session_babies.csv")) %>%
+  mutate(age_months = age_days / 30.44) %>%
+  select(-age_days) %>%
+  rename(sd_LT_congruent_trials = "sd_LT_congruent_trials...17",
+         sd_LT_incongruent_trials = "sd_LT_congruent_trials...19", # incorrectly named column
          looking_time = `looking time`) 
 
 cdat <- bind_rows(d1, d2) %>%
